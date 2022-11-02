@@ -4,12 +4,12 @@ git status 				 # check what changed
 git add .  				 # add files to the next commit (version)
 git commit -m "Your message here"	 # add a message to the commit
 git push				 # push the commit to the repository
+git fetch	                         # check upstream repository for any new updates but don't merge
 git pull				 # check upstream repository for any new updates and merge with local
 ```
 
-## Not important
+## Not as important
 ```bash
-git fetch	                         # check upstream repository for any new updates but don't merge
 git log					 # checks commit history
 git checkout -b new_branch_name 	 # create a new branch
 git checkout branch_name		 # change to branch "branch_name"
