@@ -18,7 +18,7 @@ from uldaq import (
     DigitalPortIoType,
     DigitalPortType,
     AInScanFlag,
-    AiInputMode,
+    #AiInputMode,
 )
 
 PROBE_MODE = 1
