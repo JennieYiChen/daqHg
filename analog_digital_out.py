@@ -17,6 +17,8 @@ from uldaq import (
     DigitalDirection,
     DigitalPortIoType,
     DigitalPortType,
+    AInScanFlag,
+    AiInputMode,
 )
 
 PROBE_MODE = 1
@@ -39,7 +41,14 @@ def main():
     #scan_flags = AOutScanFlag.DEFAULT
     scan_status = ScanStatus.IDLE
     
-    
+
+    range_index = 0
+    ai_low_channel = 0
+    ai_high_channel = 0
+    ai_samples_per_channel = 10000
+    ai_rate = 100
+    ai_channel_count = ai_high_channel - ai_low_channel + 1
+
     # Get descriptors for all of the available DAQ devices.
     try:
         devices = get_daq_device_inventory(interface_type) 
@@ -53,11 +62,10 @@ def main():
             print('  [', i, '] ', devices[i].product_name, ' (',
                   devices[i].unique_id, ')', sep='')    
     
-    
         # Create the DAQ device
         daq_device = DaqDevice(devices[descriptor_index])
         ao_device = daq_device.get_ao_device()
-        # ai_device = daq_device.get_ai_device()
+        ai_device = daq_device.get_ai_device()
         dio_device = daq_device.get_dio_device()
 
         # Establish a connection to the device.
@@ -69,8 +77,26 @@ def main():
 
         # Configure the port for output. Digital
         dio_device.d_config_port(DigitalPortType.AUXPORT, DigitalDirection.OUTPUT)
-
+        
+        # Allocate a buffer to receive the data
+        data = create_float_buffer(ai_channel_count, ai_samples_per_channel = 10000)
+        
+        
         input("\nHit ENTER to continue")
+
+        # start the acquisition.
+        ai_rate = ai_device.a_in_scan(
+            low_channel,
+            high_channel,
+            input_mode, 
+            ranges[range_index],
+            ai_samples_per_channel,
+            ai_rate,
+            ScanOption.CONTINUOUS, 
+            AInScanFlag.DEFAULT,
+            data
+        )
+
 
         # TODO: test d_out. What is 0, 32, 48??
         # Setting things up.    
