@@ -18,7 +18,7 @@ from uldaq import (
     DigitalPortIoType,
     DigitalPortType,
     AInScanFlag,
-    #AiInputMode,
+    AiInputMode,
 )
 
 PROBE_MODE = 1
@@ -28,27 +28,42 @@ def main():
     mode = PUMP_MODE
     
     interface_type = InterfaceType.ANY
-    descriptor_index = 0
+    descriptor_index = 0 # Use the first detected device 
     
     # Parameters for AoDevice.a_out_scan
-    low_channel = 0
-    high_channel = 0
+    ao_low_channel = 0
+    ao_high_channel = 0
     voltage_range_index = 0  # Use the first supported range
-    number_of_channels = 1
-    samples_per_channel = 3000  
-    sample_rate = 1000  # Hz
-    #scan_options = ScanOption.SINGLEIO
-    #scan_flags = AOutScanFlag.DEFAULT
+    number_of_channels = ao_high_channel - ao_low_channel + 1
+    ao_samples_per_channel = 3000  
+    ao_sample_rate = 1000  # Hz
+    ao_scan_options = ScanOption.SINGLEIO
+    ao_scan_flags = AOutScanFlag.DEFAULT
     scan_status = ScanStatus.IDLE
     
-
+    # Parameters for AiDevice.a_in_scan
     range_index = 0
     ai_low_channel = 0
     ai_high_channel = 0
+    input_mode = AiInputMode.DIFFERENTIAL
     ai_samples_per_channel = 10000
     ai_rate = 100
+    ai_available_sample_count = 2000
+    ai_scan_options = ScanOption.CONTINUOUS
+    ai_flags = AInScanFlag.DEFAULT
     ai_channel_count = ai_high_channel - ai_low_channel + 1
 
+    # three event trigger conditions
+    event_types = (DaqEventType.ON_DATA_AVAILABLE 
+        | DaqEventType.ON_END_OF_INPUT_SCAN 
+        | DaqEventType.ON_INPUT_SCAN_ERROR)
+        
+    event_parameter = ai_buffer_store
+    user_data = scan_event_data
+    scan_params = namedtuple('scan_params', 
+        'buffer ai_low_chan ai_high_chan ai_buffer_store')
+ 
+ 
     # Get descriptors for all of the available DAQ devices.
     try:
         devices = get_daq_device_inventory(interface_type) 
@@ -73,22 +88,41 @@ def main():
         daq_device.connect(connection_code=0)
                 
         # Create an array for output data. Analog Out
-        out_buffer = create_float_buffer(number_of_channels = 1, samples_per_channel = 3000)
+        out_buffer = create_float_buffer(number_of_channels = 1, ao_samples_per_channel = 3000)
 
         # Configure the port for output. Digital
         dio_device.d_config_port(DigitalPortType.AUXPORT, DigitalDirection.OUTPUT)
-        
-        # Allocate a buffer to receive the data
+       
+        # Get a list of supported ranges and validate the range index
+        ranges = ai_device.get_info.get_ranges(input_mode)
+        if range_index >= len(ranges)
+            range_index = len(ranges) - 1
+
+        # Allocate a buffer to receive the data. Analog In
         data = create_float_buffer(ai_channel_count, ai_samples_per_channel = 10000)
+       
+        # store the scan event data for use in the callback function 
+        user_data = scan_params(
+            data, 
+            ai_low_channel,
+            ai_hight_channel,
+            ai_buffer_store)
+
+        daq_device.enable_event(
+            event_types, 
+            ai_available_sample_count, 
+            event_callback_function, 
+            user_data
+        ) # event_parameter = number of samples
         
         
         input("\nHit ENTER to continue")
 
         # start the acquisition.
         ai_rate = ai_device.a_in_scan(
-            low_channel,
-            high_channel,
-            input_mode, 
+            ai_low_channel,
+            ai_high_channel,
+            input_mode,
             ranges[range_index],
             ai_samples_per_channel,
             ai_rate,
@@ -107,19 +141,19 @@ def main():
         dio_device.d_out(
             DigitalPortType.AUXPORT, 32
         ) # DIO 4 low = disable the integrator (unlock); DIO 5 high = probe setpoint
-        out_buffer = create_output_ramp(
+        out_buffer (
             SwitchToProbe = 1, out = 0, shift = 4.16, data_buffer = out_buffer
         ) # GoToProbe, AO ramp up
    
         # Start the output scan.
-        sample_rate = ao_device.a_out_scan(
-            low_channel, 
-            high_channel,
+        ao_sample_rate = ao_device.a_out_scan(
+            ao_low_channel, 
+            ao_high_channel,
             ao_device.get_info().get_ranges()[voltage_range_index],
-            samples_per_channel,
-            sample_rate,
-            ScanOption.SINGLEIO,
-            AOutScanFlag.DEFAULT,
+            ao_samples_per_channel,
+            ao_sample_rate,
+            ao_scan_options,
+            ao_scan_flags,
             out_buffer
         )  # reading only 1 and the 1st channel; 1000 Hz and 2 s buffer
            # out_buffer to be upper level?
@@ -149,14 +183,15 @@ def main():
             scan_status, transfer_status = ao_device.get_scan_status()
             if scan_status == ScanStatus.RUNNING:
                 ao_device.scan_stop()
-            sample_rate = ao_device.a_out_scan(
-                low_channel,
-                high_channel,
+            ao_sample_rate = ao_device.a_out_scan(
+                ao_low_channel,
+                ao_high_channel,
                 ao_device.get_info().get_ranges()[voltage_range_index],
-                samples_per_channel,
-                sample_rate,
-                ScanOption.SINGLEIO,
-                AOutScanFlag.DEFAULT, out_buffer)
+                ao_samples_per_channel,
+                ao_sample_rate,
+                ao_scan_options,
+                ao_scan_flags,
+                out_buffer)
          
             time.sleep(2.5) #0.6
             mode = PUMP_MODE
@@ -191,6 +226,73 @@ def create_output_ramp(SwitchToProbe, out, shift, data_buffer):
     
     return data_buffer
 
+def event_callback_function(event_callback_args):
+    
+    event_type = DaqEventType(event_callback_args.event_type)
+    event_data = event_callback_args.event_data
+    user_data = event_callback_args.user_data
+
+    if (event_type == DaqEventType.ON_DATA_AVAILABLE
+            or event_type == DaqEventType.ON_END_OF_INPUT_SCAN):
+        
+        print('\n')
+        chan_count = user_data.ai_high_chan - user_data.ai_low_chan + 1
+        scan_count = event_data
+        total_samples = scan_count * chan_count
+
+        buffer_len = len(user_data.buffer) 
+        # clear_eol()
+        # print('eventData: ', event_data, '\n')
+        # print('actual scan rate = ', '{:.6f}'.format(RATE), 'Hz\n')
+
+        # Using the remainder after dividing by the buffer length handles wrap
+        # around conditions if the example is changed to a CONTINUOUS scan.
+        # index = (total_samples - chan_count) % user_data.buffer._length_
+        # clear_eol()
+        startIndex = ((scan_count - user_data.buffer_store) * chan_count) % buffer_len # (n*2000-2000)*num_chan%(2*3000)
+        endIndex = (scan_count * chan_count) % buffer_len #  n*2000*num_chan%(2*3000)
+
+        if (endIndex < startIndex):
+            data = np.append(user_data.buffer[startIndex:], user_data.buffer[:endIndex])
+        else:  
+            data = user_data.buffer[startIndex:endIndex]
+        
+        data = np.reshape(data,(-1,chan_count))
+        
+        new_shape = (scan_count, chan_count)
+        DAQ.dset.resize( new_shape )
+        findex = scan_count - user_data.buffer_store
+        DAQ.dset[findex:,:] = data  #dset[...] = data # writing data to the output file
+        DAQ.dset.flush()
+        
+        # Print outputs
+        print('Event counts (total): ', scan_count)
+        print('Scan rate = ', '{:.2f}'.format(DAQ.rate), 'Hz')
+        print('buffer_length = ', buffer_len)
+        print('currentBufferIndex = ', startIndex)
+        print('user_data.buffer_store', user_data.buffer_store)
+        print('endIndex', endIndex)
+        for i in range(chan_count):
+            print('chan',
+                  i + user_data.low_chan,
+                  '{:.6f}'.format(user_data.buffer[endIndex - chan_count + i]))
+                  
+        # print('currentIndex = ', index, '\n')
+
+        # for i in range(chan_count):
+        #     clear_eol()
+        #     print('chan =',
+        #           i + user_data.low_chan,
+        #          '{:10.6f}'.format(user_data.buffer[index + i]))
+
+    if event_type == DaqEventType.ON_INPUT_SCAN_ERROR:
+        exception = ULException(event_data)
+        print(exception)
+        user_data.status['error'] = True
+
+    if event_type == DaqEventType.ON_END_OF_INPUT_SCAN:
+        print('\nThe scan is complete\n')
+        user_data.status['complete'] = True
 
 if __name__ == '__main__':
     main()
