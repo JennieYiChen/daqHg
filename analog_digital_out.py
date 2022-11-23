@@ -4,7 +4,8 @@
 """
 Sends ramping instructions to a MCUSB daq and live plots
 """
-import math, time, sys, os
+import math, time, sys, os, h5py, collections
+import numpy as np
 
 from uldaq import (
     DaqDevice,
@@ -19,6 +20,9 @@ from uldaq import (
     DigitalPortType,
     AInScanFlag,
     AiInputMode,
+    DaqEventType,
+    ULException, 
+    EventCallbackArgs
 )
 
 PROBE_MODE = 1
@@ -46,6 +50,7 @@ def main():
     ai_low_channel = 0
     ai_high_channel = 0
     input_mode = AiInputMode.DIFFERENTIAL
+    range_index = 0
     ai_samples_per_channel = 10000
     ai_rate = 100
     ai_available_sample_count = 2000
@@ -53,15 +58,23 @@ def main():
     ai_flags = AInScanFlag.DEFAULT
     ai_channel_count = ai_high_channel - ai_low_channel + 1
 
+    # create a file to store data
+    OutputFileName = 'test.hdf'
+    f = h5py.File(OutputFileName, 'w', libver = 'latest')
+    arr = np.array([np.zeros(ai_channel_count)], dtype='f2')
+    dset = f.create_dataset("events", chunks=(ai_available_sample_count, ai_channel_count), maxshape=(None,None), data=arr, compression="gzip", compression_opts=9)
+    f.swmr_mode = True
+    
     # three event trigger conditions
     event_types = (DaqEventType.ON_DATA_AVAILABLE 
         | DaqEventType.ON_END_OF_INPUT_SCAN 
         | DaqEventType.ON_INPUT_SCAN_ERROR)
         
-    event_parameter = ai_buffer_store
-    user_data = scan_event_data
-    scan_params = namedtuple('scan_params', 
-        'buffer ai_low_chan ai_high_chan ai_buffer_store')
+    # event_parameter = ai_buffer_store
+    # user_data = scan_event_data
+    scan_params = collections.namedtuple('scan_params', 
+        'buffer ai_low_chan ai_high_chan')
+    #     scan_params = collections.namedtuple('scan_params', 'buffer ai_low_chan ai_high_chan ai_buffer_store')
  
  
     # Get descriptors for all of the available DAQ devices.
@@ -88,25 +101,25 @@ def main():
         daq_device.connect(connection_code=0)
                 
         # Create an array for output data. Analog Out
-        out_buffer = create_float_buffer(number_of_channels = 1, ao_samples_per_channel = 3000)
+        out_buffer = create_float_buffer(number_of_channels, ao_samples_per_channel)
 
         # Configure the port for output. Digital
         dio_device.d_config_port(DigitalPortType.AUXPORT, DigitalDirection.OUTPUT)
        
         # Get a list of supported ranges and validate the range index
-        ranges = ai_device.get_info.get_ranges(input_mode)
-        if range_index >= len(ranges)
+        ranges = ai_device.get_info().get_ranges(input_mode)
+        if range_index >= len(ranges):
             range_index = len(ranges) - 1
 
         # Allocate a buffer to receive the data. Analog In
-        data = create_float_buffer(ai_channel_count, ai_samples_per_channel = 10000)
+        data = create_float_buffer(ai_channel_count, ai_samples_per_channel)
        
         # store the scan event data for use in the callback function 
         user_data = scan_params(
             data, 
             ai_low_channel,
-            ai_hight_channel,
-            ai_buffer_store)
+            ai_high_channel)
+        #user_data = scan_params( data, ai_low_channel,ai_high_channel,ai_buffer_store)    
 
         daq_device.enable_event(
             event_types, 
@@ -141,7 +154,7 @@ def main():
         dio_device.d_out(
             DigitalPortType.AUXPORT, 32
         ) # DIO 4 low = disable the integrator (unlock); DIO 5 high = probe setpoint
-        out_buffer (
+        create_output_ramp (
             SwitchToProbe = 1, out = 0, shift = 4.16, data_buffer = out_buffer
         ) # GoToProbe, AO ramp up
    
@@ -260,10 +273,11 @@ def event_callback_function(event_callback_args):
         data = np.reshape(data,(-1,chan_count))
         
         new_shape = (scan_count, chan_count)
-        DAQ.dset.resize( new_shape )
+        
+        dset.resize( new_shape )
         findex = scan_count - user_data.buffer_store
-        DAQ.dset[findex:,:] = data  #dset[...] = data # writing data to the output file
-        DAQ.dset.flush()
+        dset[findex:,:] = data  #dset[...] = data # writing data to the output file
+        dset.flush()
         
         # Print outputs
         print('Event counts (total): ', scan_count)
