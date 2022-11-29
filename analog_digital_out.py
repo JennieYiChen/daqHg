@@ -110,7 +110,7 @@ def main():
         data = create_float_buffer(ai_channel_count, ai_samples_per_channel)
        
         # parameters in a_in_scan_events callback function
-        callback_params = scan_params(
+        user_data = scan_params(
             data, 
             ai_low_channel,
             ai_high_channel, 
@@ -121,7 +121,7 @@ def main():
             event_types, 
             ai_available_sample_count, 
             event_callback_function, 
-            callback_params
+            user_data
         ) 
         
         
@@ -288,11 +288,6 @@ def event_callback_function(event_callback_args):
         data = np.reshape(data,(-1,chan_count))
         
         new_shape = (scan_count, chan_count)
-        
-        plt.plot(data[:,0])
-        plt.plot(data[:,1])
-        plt.ylabel('analog input signal')
-        plt.show()
 
         # Print outputs
         print('Event counts (total): ', scan_count)
