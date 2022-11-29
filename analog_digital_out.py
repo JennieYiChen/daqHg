@@ -6,7 +6,6 @@ Sends ramping instructions to a MCUSB daq and live plots
 """
 import math, time, sys, os, h5py, collections
 import numpy as np
-import matplotlib.pyplot as plt
 
 from uldaq import (
     DaqDevice,
@@ -38,7 +37,7 @@ def main():
     mode = PUMP_MODE
     
     interface_type = InterfaceType.ANY
-    descriptor_index = 0 # Use the first detected device 
+    descriptor_index = 0 # Use the first detected DAQ device 
     
     # Parameters for AoDevice.a_out_scan
     ao_low_channel = 0
@@ -51,7 +50,7 @@ def main():
     ao_scan_flags = AOutScanFlag.DEFAULT
     scan_status = ScanStatus.IDLE
     
-    # Parameters for AiDevice.a_in_scan
+    # Parameters for ananlog input 
     range_index = 0
     ai_low_channel = 0
     ai_high_channel = 1
@@ -64,13 +63,6 @@ def main():
     ai_flags = AInScanFlag.DEFAULT
     ai_channel_count = ai_high_channel - ai_low_channel + 1
 
-    # create a file to store data
-    # OutputFileName = 'test.hdf5'
-    # f = h5py.File(OutputFileName, 'w', libver = 'latest')
-    # arr = np.array([np.zeros(ai_channel_count)], dtype='f2')
-    # dset = f.create_dataset("events", chunks=(ai_available_sample_count, ai_channel_count), maxshape=(None,None), data=arr, compression="gzip", compression_opts=9)
-    # f.swmr_mode = True
-    
     # three event trigger conditions
     event_types = (DaqEventType.ON_DATA_AVAILABLE 
         | DaqEventType.ON_END_OF_INPUT_SCAN 
@@ -118,7 +110,7 @@ def main():
         data = create_float_buffer(ai_channel_count, ai_samples_per_channel)
        
         # parameters in a_in_scan_events callback function
-        user_data = scan_params(
+        callback_params = scan_params(
             data, 
             ai_low_channel,
             ai_high_channel, 
@@ -129,7 +121,7 @@ def main():
             event_types, 
             ai_available_sample_count, 
             event_callback_function, 
-            user_data
+            callback_params
         ) 
         
         
@@ -284,18 +276,9 @@ def event_callback_function(event_callback_args):
         total_samples = scan_count * chan_count
 
         buffer_len = len(user_data.buffer) 
-        # clear_eol()
-        # print('eventData: ', event_data, '\n')
-        # print('actual scan rate = ', '{:.6f}'.format(RATE), 'Hz\n')
 
-        # Using the remainder after dividing by the buffer length handles wrap
-        # around conditions if the example is changed to a CONTINUOUS scan.
-        # index = (total_samples - chan_count) % user_data.buffer._length_
-        # clear_eol()
         startIndex = ((scan_count - user_data.ai_available_sample_count) * chan_count) % buffer_len # (n*2000-2000)*num_chan%(2*3000)
         endIndex = (scan_count * chan_count) % buffer_len #  n*2000*num_chan%(2*3000)
-        
-
         
         if (endIndex < startIndex):
             data = np.append(user_data.buffer[startIndex:], user_data.buffer[:endIndex])
@@ -310,12 +293,7 @@ def event_callback_function(event_callback_args):
         plt.plot(data[:,1])
         plt.ylabel('analog input signal')
         plt.show()
-        
-        #dset.resize( new_shape )
-        #findex = scan_count - user_data.ai_available_sample_count
-        #dset[findex:,:] = data  #dset[...] = data # writing data to the output file
-        #dset.flush()
-        
+
         # Print outputs
         print('Event counts (total): ', scan_count)
         #print('Scan rate = ', '{:.2f}'.format(DAQ.rate), 'Hz')
