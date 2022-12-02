@@ -1,0 +1,7 @@
+# Ignore HDF files
+*.hdf
+*.hdf5
+
+# Python files
+__pycache__/
+*.py[cod]
