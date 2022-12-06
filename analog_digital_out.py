@@ -5,7 +5,19 @@
 Sends ramping instructions to a MCUSB daq and live plots
 """
 import math, time, sys, os, h5py, collections
+from sys import stdout
 import numpy as np
+import pandas as pd
+import pyqtgraph as pg
+import matplotlib.pyplot as plt
+from datetime import datetime
+import argparse
+
+# File output
+columnNames = ['chan0','chan1']
+hdfKey = 'events'
+comp_lib = 'bzip2'   # compression library
+comp_level = 9       # compression level [0-9], 0 disables compression
 
 from uldaq import (
     DaqDevice,
@@ -34,6 +46,13 @@ PROBE_MODE = 1
 PUMP_MODE = 0
 
 def main():
+    global OUTPUT_FILENAME
+    parser = argparse.ArgumentParser(description='reads MCCDAQ into .hdf file')
+    parser.add_argument('-f','--file', type=str, required=True, help='Filename')
+    args = parser.parse_args()
+    OUTPUT_FILENAME = args.file
+
+    global ai_rate
     mode = PUMP_MODE
     
     interface_type = InterfaceType.ANY
@@ -51,9 +70,10 @@ def main():
     scan_status = ScanStatus.IDLE
     
     # Parameters for ananlog input 
+    PLOT_ON = True
     range_index = 0
     ai_low_channel = 0
-    ai_high_channel = 1
+    ai_high_channel = len(columnNames) - 1
     input_mode = AiInputMode.DIFFERENTIAL
     range_index = 0
     ai_samples_per_channel = 10000
@@ -71,7 +91,10 @@ def main():
     # parameter titles in a_in_scan_events callback function
     scan_params = collections.namedtuple('scan_params', 
         'buffer ai_low_chan ai_high_chan ai_available_sample_count')
-  
+    
+    # for more graceful error handling of ctrl C
+    successFlag = True 
+ 
     # Get descriptors for all of the available DAQ devices.
     try:
         devices = get_daq_device_inventory(interface_type) 
@@ -127,7 +150,9 @@ def main():
         
         input("\nHit ENTER to continue")
 
-        # start the acquisition.
+        # Start the acquisition.
+        start_time = str(datetime.now())
+        
         ai_rate = ai_device.a_in_scan(
             ai_low_channel,
             ai_high_channel,
@@ -139,6 +164,7 @@ def main():
             AInScanFlag.DEFAULT,
             data
         )
+        end_time = str(datetime.now())
         
         # Setting things up.    
         dio_device.d_out(
@@ -211,6 +237,9 @@ def main():
 
        
     except Exception as e:
+        PLOT_ON = False
+        end_time = str(datetime.now())
+        successFlag = False
         print("\n", e)     
 
     finally:       
@@ -232,6 +261,28 @@ def main():
                 daq_device.disconnect()          
             # Release the DAQ device resource.
             daq_device.release()
+           
+        if os.path.isfile(OUTPUT_FILENAME) and successFlag:
+            # Store additional metadata
+            os.system('clear')
+            reset_cursor()
+            print("Rate: ", ai_rate, "\nStart(approx)", start_time, "\nEnd(approx)", end_time)
+            with h5py.File(OUTPUT_FILENAME, "r+") as f1:
+                f1.attrs['rate'] = ai_rate
+                f1.attrs['start_time'] = start_time
+                f1.attrs['end_time'] = end_time
+                print("Data has been written to ", OUTPUT_FILENAME)
+            if PLOT_ON:
+                # Plots channel readings
+                hdf = pd.read_hdf(OUTPUT_FILENAME, hdfKey)
+                print("Plotting...")
+                for i in np.arange( len(hdf.columns) ):
+                    ax = hdf.plot(y=columnNames[i],title=columnNames[i])
+                    ax.set_xlabel('events')
+                    ax.set_ylabel('[V]')
+                    plt.grid()
+                plt.show()
+    return
     
 def create_output_ramp(SwitchToProbe, out, shift, data_buffer):
     """Populate the buffer with a ramp: overshoot, stay , back to target, then stay."""
@@ -288,6 +339,19 @@ def event_callback_function(event_callback_args):
         data = np.reshape(data,(-1,chan_count))
         
         new_shape = (scan_count, chan_count)
+        
+        dfIndex = np.arange(scan_count - user_data.ai_available_sample_count, scan_count, dtype=int)
+        df= pd.DataFrame(data, 
+                        columns=columnNames[:chan_count],
+                        index=dfIndex)
+        df.to_hdf(OUTPUT_FILENAME, 
+                  key=hdfKey, 
+                  format='t',
+                  data_columns=True, 
+                  mode='a', 
+                  append=True, 
+                  complib=comp_lib, 
+                  complevel=comp_level)
 
         # Print outputs
         print('Event counts (total): ', scan_count)
@@ -308,7 +372,8 @@ def event_callback_function(event_callback_args):
         #     print('chan =',
         #           i + user_data.low_chan,
         #          '{:10.6f}'.format(user_data.buffer[index + i]))
-
+        
+        
     if event_type == DaqEventType.ON_INPUT_SCAN_ERROR:
         exception = ULException(event_data)
         print(exception)
@@ -317,6 +382,9 @@ def event_callback_function(event_callback_args):
     if event_type == DaqEventType.ON_END_OF_INPUT_SCAN:
         print('\nThe scan is complete\n')
         user_data.status['complete'] = True
+
+def reset_cursor():
+    stdout.write('\033[1;1H')
 
 if __name__ == '__main__':
     main()
