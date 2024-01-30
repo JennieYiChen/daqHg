@@ -5,3 +5,6 @@
 # Python files
 __pycache__/
 *.py[cod]
+
+# Jupyter notebook
+.ipynb_checkpoints/
