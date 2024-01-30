@@ -1,7 +1,8 @@
 ## Important
 ```bash
 git status 				 # check what changed
-git add .  				 # add files to the next commit (version)
+git add .  				 # add ALL files to the next commit (version)
+git add <filename>       # adds specific filename(s)
 git commit -m "Your message here"	 # add a message to the commit
 git push				 # push the commit to the repository
 git fetch	                         # check upstream repository for any new updates but don't merge
